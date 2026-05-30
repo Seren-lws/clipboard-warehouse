@@ -343,6 +343,7 @@ export default function App() {
   const [saving, setSaving] = useState(false)
   const fileRef = useRef(null)
   const searchRef = useRef(null)
+  const textareaRef = useRef(null)
 
   const allTags = [...DEFAULT_TAGS, ...customTags.filter(t => !DEFAULT_TAGS.includes(t))]
 
@@ -359,6 +360,12 @@ export default function App() {
   }, [])
 
   useEffect(() => { if (showSearch && searchRef.current) searchRef.current.focus() }, [showSearch])
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (ta) { ta.style.height = "auto"; ta.style.height = Math.max(72, ta.scrollHeight) + "px" }
+  }, [inputText])
 
   const flash = (msg) => {
     setToast({ msg, show: true })
@@ -554,9 +561,9 @@ export default function App() {
             <button onClick={cancelEdit} style={{background:"none",border:"none",color:"#B39DAD",
               cursor:"pointer",fontSize:11,textDecoration:"underline"}}>取消</button>
           </div>}
-          <textarea value={inputText} onChange={e=>setInputText(e.target.value)}
-            placeholder="写点什么…" rows={3}
-            style={{width:"100%",border:"none",outline:"none",resize:"vertical",
+          <textarea ref={textareaRef} value={inputText} onChange={e=>setInputText(e.target.value)}
+            placeholder="写点什么…"
+            style={{width:"100%",border:"none",outline:"none",resize:"none",overflow:"hidden",
               fontSize:14,lineHeight:1.75,color:"#4A3F4A",background:"transparent",
               fontFamily:"inherit",minHeight:72}}/>
           {/* New image previews */}
