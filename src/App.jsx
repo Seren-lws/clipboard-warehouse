@@ -260,9 +260,8 @@ function CalendarView({ records, onSelectDate, selectedDate }) {
 }
 
 /* ====== Record Card ====== */
-function RecordCard({ record, onPin, onDelete, onCopy, onEdit, sq }) {
+function RecordCard({ record, onPin, onDelete, onCopy, onEdit, onPreview, sq }) {
   const [exp, setExp] = useState(false)
-  const [previewImg, setPreviewImg] = useState(null)
   const isLong = record.content.length > 150
   const txt = isLong && !exp ? record.content.slice(0,150)+"…" : record.content
 
@@ -306,27 +305,11 @@ function RecordCard({ record, onPin, onDelete, onCopy, onEdit, sq }) {
       </div>
       {record.images && record.images.length > 0 && (
         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-          {record.images.map((img,i) => <img key={i} src={img} onClick={()=>setPreviewImg(img)} style={{
-            width:80,height:80,objectFit:"cover",borderRadius:10,border:"1px solid #F0E6DF",cursor:"pointer",
-            transition:"transform 0.15s"
+          {record.images.map((img,i) => <img key={i} src={img} onClick={()=>onPreview(img)} style={{
+            width:80,height:80,objectFit:"cover",borderRadius:10,border:"1px solid #F0E6DF",cursor:"pointer"
           }}/>)}
         </div>
       )}
-      {previewImg && <div onClick={()=>setPreviewImg(null)} style={{
-        position:"fixed",inset:0,background:"rgba(30,25,30,0.85)",zIndex:200,
-        display:"flex",alignItems:"center",justifyContent:"center",
-        backdropFilter:"blur(8px)",padding:20,cursor:"zoom-out"
-      }}>
-        <img src={previewImg} onClick={e=>e.stopPropagation()} style={{
-          maxWidth:"90%",maxHeight:"85vh",borderRadius:12,objectFit:"contain",
-          boxShadow:"0 20px 60px rgba(0,0,0,0.4)"
-        }}/>
-        <button onClick={()=>setPreviewImg(null)} style={{
-          position:"absolute",top:20,right:20,background:"rgba(255,255,255,0.15)",
-          border:"none",borderRadius:20,width:36,height:36,cursor:"pointer",
-          display:"flex",alignItems:"center",justifyContent:"center",color:"white"
-        }}><I.Close/></button>
-      </div>}
       {record.tags.length > 0 && (
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {record.tags.map(tag => <span key={tag} style={{
@@ -352,6 +335,7 @@ export default function App() {
   const [showTagPanel, setShowTagPanel] = useState(false)
   const [showTagManager, setShowTagManager] = useState(false)
   const [showExport, setShowExport] = useState(false)
+  const [previewImg, setPreviewImg] = useState(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [showSearch, setShowSearch] = useState(false)
   const [toast, setToast] = useState({ msg: "", show: false })
@@ -686,7 +670,7 @@ export default function App() {
           ) : displayRecords.map((r,i) => (
             <div key={r.id} style={{animation:`slideIn 0.25s ease ${i*0.03}s both`}}>
               <RecordCard record={r} onPin={handlePin} onDelete={handleDelete}
-                onCopy={handleCopy} onEdit={handleEdit} sq={searchQuery.trim()}/>
+                onCopy={handleCopy} onEdit={handleEdit} onPreview={setPreviewImg} sq={searchQuery.trim()}/>
             </div>
           ))}
         </div>
@@ -701,6 +685,21 @@ export default function App() {
         onAdd={handleAddTag} onDelete={handleDeleteTag} onClose={()=>setShowTagManager(false)}/>}
       {showExport && <ExportModal records={records} filterTag={filterTag}
         calendarDate={calendarDate} onClose={()=>setShowExport(false)}/>}
+      {previewImg && <div onClick={()=>setPreviewImg(null)} style={{
+        position:"fixed",inset:0,background:"rgba(30,25,30,0.9)",zIndex:9999,
+        display:"flex",alignItems:"center",justifyContent:"center",
+        padding:16
+      }}>
+        <img src={previewImg} style={{
+          maxWidth:"92vw",maxHeight:"85vh",borderRadius:8,objectFit:"contain"
+        }}/>
+        <button onClick={()=>setPreviewImg(null)} style={{
+          position:"fixed",top:16,right:16,background:"rgba(255,255,255,0.2)",
+          border:"none",borderRadius:20,width:40,height:40,cursor:"pointer",
+          display:"flex",alignItems:"center",justifyContent:"center",color:"white",
+          fontSize:20,zIndex:10000
+        }}>✕</button>
+      </div>}
     </div>
   )
 }
