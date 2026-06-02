@@ -44,6 +44,7 @@ const I = {
   Right: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>,
   Close: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
   Edit: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>,
+  Heart: ({f}) => <svg width="15" height="15" viewBox="0 0 24 24" fill={f?"currentColor":"none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
 }
 
 /* ====== Toast ====== */
@@ -260,7 +261,7 @@ function CalendarView({ records, onSelectDate, selectedDate }) {
 }
 
 /* ====== Record Card ====== */
-function RecordCard({ record, onPin, onDelete, onCopy, onEdit, onPreview, sq }) {
+function RecordCard({ record, onPin, onFavorite, onDelete, onCopy, onEdit, onPreview, sq }) {
   const [exp, setExp] = useState(false)
   const isLong = record.content.length > 150
   const txt = isLong && !exp ? record.content.slice(0,150)+"…" : record.content
@@ -287,6 +288,7 @@ function RecordCard({ record, onPin, onDelete, onCopy, onEdit, onPreview, sq }) 
         <span style={{fontSize:11,color:"#B5A1A8",fontWeight:500}}>{fmtFull(record.created_at)}</span>
         <div style={{display:"flex",gap:2}}>
           {[
+            { icon: <I.Heart f={record.favorited}/>, fn: ()=>onFavorite(record.id, !record.favorited), c: record.favorited?"#E88CA5":"#C9B8BF", t: record.favorited?"取消收藏":"收藏" },
             { icon: <I.Edit/>, fn: ()=>onEdit(record), c: "#C9B8BF", t: "编辑" },
             { icon: <I.Pin f={record.pinned}/>, fn: ()=>onPin(record.id, !record.pinned), c: record.pinned?"#D4A5C9":"#C9B8BF", t: record.pinned?"取消置顶":"置顶" },
             { icon: <I.Copy/>, fn: ()=>onCopy(record.content), c: "#C9B8BF", t: "复制" },
@@ -336,6 +338,7 @@ export default function App() {
   const [showTagManager, setShowTagManager] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [previewImg, setPreviewImg] = useState(null)
+  const [showFavorites, setShowFavorites] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [showSearch, setShowSearch] = useState(false)
   const [toast, setToast] = useState({ msg: "", show: false })
@@ -365,7 +368,9 @@ export default function App() {
   // Auto-resize textarea
   useEffect(() => {
     const ta = textareaRef.current
-    if (ta) { ta.style.height = "auto"; ta.style.height = Math.max(72, ta.scrollHeight) + "px" }
+    if (!ta) return
+    ta.style.height = "0px"
+    ta.style.height = Math.max(72, Math.min(ta.scrollHeight, 300)) + "px"
   }, [inputText])
 
   const flash = (msg) => {
@@ -412,6 +417,13 @@ export default function App() {
   const handlePin = async (id, pinned) => {
     try {
       const updated = await updateRecord(id, { pinned })
+      setRecords(prev => prev.map(r => r.id === id ? updated : r))
+    } catch (e) { flash("操作失败") }
+  }
+
+  const handleFavorite = async (id, favorited) => {
+    try {
+      const updated = await updateRecord(id, { favorited })
       setRecords(prev => prev.map(r => r.id === id ? updated : r))
     } catch (e) { flash("操作失败") }
   }
@@ -469,6 +481,7 @@ export default function App() {
   // Filter & sort
   const displayRecords = records
     .filter(r => {
+      if (showFavorites && !r.favorited) return false
       if (filterTag && !r.tags.includes(filterTag)) return false
       if (calendarDate && fmt(r.created_at) !== calendarDate) return false
       if (searchQuery.trim()) {
@@ -534,10 +547,14 @@ export default function App() {
         </div>}
 
         <div style={{display:"flex",gap:4,marginBottom:8}}>
-          <button onClick={()=>{setView("list");setCalendarDate(null)}} style={{
+          <button onClick={()=>{setView("list");setCalendarDate(null);setShowFavorites(false)}} style={{
             padding:"6px 12px",borderRadius:10,border:"none",fontSize:12,
-            background:view==="list"?"#5D4E60":"transparent",color:view==="list"?"white":"#B39DAD",
+            background:view==="list"&&!showFavorites?"#5D4E60":"transparent",color:view==="list"&&!showFavorites?"white":"#B39DAD",
             cursor:"pointer",fontWeight:500,transition:"all 0.2s"}}>列表</button>
+          <button onClick={()=>{setShowFavorites(!showFavorites);setView("list");setCalendarDate(null)}} style={{
+            padding:"6px 12px",borderRadius:10,border:"none",fontSize:12,
+            background:showFavorites?"#E88CA5":"transparent",color:showFavorites?"white":"#B39DAD",
+            cursor:"pointer",fontWeight:500,transition:"all 0.2s"}}>♥ 收藏</button>
           <button onClick={()=>{if(view==="calendar"){setView("list");setCalendarDate(null)}else setView("calendar")}} style={{
             padding:"6px 12px",borderRadius:10,border:"none",fontSize:12,
             background:view==="calendar"?"#5D4E60":"transparent",color:view==="calendar"?"white":"#B39DAD",
@@ -606,6 +623,8 @@ export default function App() {
                 background:"none",border:"none",cursor:"pointer",color:"#B39DAD",
                 padding:6,borderRadius:8,display:"flex",alignItems:"center",gap:4,fontSize:12
               }}><I.Img/> 图片</button>
+              {inputText.length > 0 && <span style={{fontSize:11,color:"#C9B8BF",fontWeight:500,
+                marginLeft:4}}>{inputText.length}字</span>}
             </div>
             <button onClick={handleSave} disabled={saving} style={{
               background: hasContent ? "linear-gradient(135deg, #D4A5C9 0%, #C9A5D4 100%)" : "#E8DFD8",
@@ -659,7 +678,7 @@ export default function App() {
 
       {/* Records */}
       <div style={{padding:"12px 20px 24px"}}>
-        {(filterTag||calendarDate||searchQuery.trim()) && <div style={{
+        {(filterTag||calendarDate||searchQuery.trim()||showFavorites) && <div style={{
           fontSize:12,color:"#B39DAD",marginBottom:10,fontWeight:500
         }}>共 {displayRecords.length} 条记录</div>}
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -669,7 +688,7 @@ export default function App() {
             </div>
           ) : displayRecords.map((r,i) => (
             <div key={r.id} style={{animation:`slideIn 0.25s ease ${i*0.03}s both`}}>
-              <RecordCard record={r} onPin={handlePin} onDelete={handleDelete}
+              <RecordCard record={r} onPin={handlePin} onFavorite={handleFavorite} onDelete={handleDelete}
                 onCopy={handleCopy} onEdit={handleEdit} onPreview={setPreviewImg} sq={searchQuery.trim()}/>
             </div>
           ))}
@@ -678,7 +697,7 @@ export default function App() {
 
       <div className="app-bottom" style={{
         padding:"12px 20px 20px",textAlign:"center",fontSize:11,color:"#C9B8BF",fontWeight:500
-      }}>共 {records.length} 条记录 · {allTags.length} 个标签 · {records.filter(r=>r.pinned).length} 条置顶</div>
+      }}>共 {records.length} 条记录 · {allTags.length} 个标签 · {records.filter(r=>r.pinned).length} 置顶 · {records.filter(r=>r.favorited).length} 收藏</div>
 
       <Toast message={toast.msg} visible={toast.show}/>
       {showTagManager && <TagManager tags={allTags} customTags={customTags}
