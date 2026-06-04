@@ -18,6 +18,26 @@ const TAG_COLORS = {
 
 const getTagColor = (tag) => TAG_COLORS[tag] || "#B5A1D4"
 
+// Render **bold** and ==highlight== as React elements
+function renderFormatted(text) {
+  // Split by **bold** and ==highlight== patterns
+  const parts = text.split(/(\*\*[^*]+\*\*|==[^=]+==%?)/)
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={i} style={{fontWeight:700}}>{part.slice(2, -2)}</strong>
+    }
+    if (part.startsWith("==") && part.endsWith("==")) {
+      return <mark key={i} style={{background:"#FCEABB",color:"#5D4E60",borderRadius:3,padding:"0 2px"}}>{part.slice(2, -2)}</mark>
+    }
+    return part
+  })
+}
+
+// Strip markdown markers for clean copy
+function stripFormat(text) {
+  return text.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/==([^=]+)==/g, "$1")
+}
+
 function fmt(iso) {
   const d = new Date(iso)
   return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}`
@@ -142,11 +162,12 @@ function ExportModal({ records, filterTag, calendarDate, onClose }) {
   const buildTxt = (recs) => recs.map(r => {
     const tags = r.tags.length > 0 ? ` [${r.tags.join(", ")}]` : ""
     const pin = r.pinned ? " 📌" : ""
-    return `--- ${fmtFull(r.created_at)}${pin}${tags} ---\n${r.content}`
+    const notes = r.notes ? `\n备注：${r.notes}` : ""
+    return `--- ${fmtFull(r.created_at)}${pin}${tags} ---\n${r.content}${notes}`
   }).join("\n\n")
 
   const buildJson = (recs) => JSON.stringify(recs.map(r => ({
-    content: r.content, tags: r.tags, pinned: r.pinned,
+    content: r.content, tags: r.tags, pinned: r.pinned, notes: r.notes || "",
     created_at: r.created_at, images: r.images
   })), null, 2)
 
@@ -300,7 +321,7 @@ function RecordCard({ record, onPin, onFavorite, onDelete, onCopy, onEdit, onPre
       </div>
       <div style={{fontSize:14,lineHeight:1.75,color:"#4A3F4A",whiteSpace:"pre-wrap",wordBreak:"break-word",
         marginBottom: (record.tags.length>0||(record.images||[]).length>0)?10:0}}>
-        {sq ? hl(txt, sq) : txt}
+        {sq ? hl(txt, sq) : renderFormatted(txt)}
         {isLong && <button onClick={()=>setExp(!exp)} style={{
           background:"none",border:"none",color:"#D4A5C9",cursor:"pointer",fontSize:12,padding:"0 4px",fontWeight:500
         }}>{exp?"收起":"展开"}</button>}
@@ -312,6 +333,9 @@ function RecordCard({ record, onPin, onFavorite, onDelete, onCopy, onEdit, onPre
           }}/>)}
         </div>
       )}
+      {record.notes && <div style={{fontSize:12,color:"#A89585",marginBottom:8,
+        padding:"6px 10px",background:"#FAF6F0",borderRadius:8,borderLeft:"3px solid #E8C07C",
+        lineHeight:1.5}}>✎ {record.notes}</div>}
       {record.tags.length > 0 && (
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {record.tags.map(tag => <span key={tag} style={{
@@ -329,7 +353,9 @@ export default function App() {
   const [records, setRecords] = useState([])
   const [customTags, setCustomTags] = useState([])
   const [inputText, setInputText] = useState("")
+  const [inputNotes, setInputNotes] = useState("")
   const [selectedTags, setSelectedTags] = useState([])
+  const [showNotes, setShowNotes] = useState(false)
   const [imgFiles, setImgFiles] = useState([]) // { file, preview }
   const [view, setView] = useState("list")
   const [filterTag, setFilterTag] = useState(null)
@@ -365,12 +391,15 @@ export default function App() {
 
   useEffect(() => { if (showSearch && searchRef.current) searchRef.current.focus() }, [showSearch])
 
-  // Auto-resize textarea
+  // Auto-resize textarea with max height and scrollbar
   useEffect(() => {
     const ta = textareaRef.current
     if (!ta) return
     ta.style.height = "0px"
-    ta.style.height = Math.max(72, Math.min(ta.scrollHeight, 300)) + "px"
+    const sh = ta.scrollHeight
+    const maxH = 300
+    ta.style.height = Math.max(72, Math.min(sh, maxH)) + "px"
+    ta.style.overflowY = sh > maxH ? "auto" : "hidden"
   }, [inputText])
 
   const flash = (msg) => {
@@ -394,19 +423,19 @@ export default function App() {
 
       if (editing) {
         const updated = await updateRecord(editing.id, {
-          content: inputText, tags: selectedTags, images: allImages
+          content: inputText, tags: selectedTags, images: allImages, notes: inputNotes
         })
         setRecords(prev => prev.map(r => r.id === editing.id ? updated : r))
         setEditing(null)
         flash("已更新 ✨")
       } else {
         const rec = await createRecord({
-          content: inputText, tags: selectedTags, images: allImages
+          content: inputText, tags: selectedTags, images: allImages, notes: inputNotes
         })
         setRecords(prev => [rec, ...prev])
         flash("已保存 ✨")
       }
-      setInputText(""); setSelectedTags([]); setImgFiles([])
+      setInputText(""); setInputNotes(""); setSelectedTags([]); setImgFiles([]); setShowNotes(false)
     } catch (e) {
       console.error("Save error:", e)
       flash("保存失败，请重试")
@@ -437,13 +466,35 @@ export default function App() {
   }
 
   const handleCopy = async (text) => {
-    try { await navigator.clipboard.writeText(text); flash("已复制 📋") }
+    try { await navigator.clipboard.writeText(stripFormat(text)); flash("已复制 📋") }
     catch { flash("复制失败") }
   }
 
+  const insertFormat = (marker) => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    const text = inputText
+    if (start === end) {
+      // No selection - insert markers with placeholder
+      const placeholder = marker === "**" ? "粗体文字" : "高亮文字"
+      const newText = text.slice(0, start) + marker + placeholder + marker + text.slice(end)
+      setInputText(newText)
+      setTimeout(() => { ta.focus(); ta.setSelectionRange(start + marker.length, start + marker.length + placeholder.length) }, 0)
+    } else {
+      // Wrap selection
+      const selected = text.slice(start, end)
+      const newText = text.slice(0, start) + marker + selected + marker + text.slice(end)
+      setInputText(newText)
+      setTimeout(() => { ta.focus(); ta.setSelectionRange(start + marker.length, end + marker.length) }, 0)
+    }
+  }
+
   const handleEdit = (record) => {
-    setEditing(record); setInputText(record.content)
+    setEditing(record); setInputText(record.content); setInputNotes(record.notes || "")
     setSelectedTags([...record.tags]); setImgFiles([])
+    if (record.notes) setShowNotes(true)
     window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
@@ -460,7 +511,7 @@ export default function App() {
   )
 
   const cancelEdit = () => {
-    setEditing(null); setInputText(""); setSelectedTags([]); setImgFiles([])
+    setEditing(null); setInputText(""); setInputNotes(""); setSelectedTags([]); setImgFiles([]); setShowNotes(false)
   }
 
   const handleAddTag = async (name) => {
@@ -601,6 +652,12 @@ export default function App() {
           </div>}
           {/* Tags */}
           <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10,paddingTop:10,borderTop:"1px solid #F5EDE8"}}>
+            <button onClick={()=>setShowNotes(!showNotes)} style={{
+              padding:"4px 10px",borderRadius:8,fontSize:12,border:"none",cursor:"pointer",
+              background:showNotes||inputNotes?"#E8C07C20":"#F5EDE8",
+              color:showNotes||inputNotes?"#E8A87C":"#C9B8BF",fontWeight:500,
+              display:"flex",alignItems:"center",gap:3,transition:"all 0.2s"
+            }}>✎ 备注{inputNotes?" ·":"" }</button>
             {allTags.map(tag => {
               const active = selectedTags.includes(tag)
               return <button key={tag} onClick={()=>toggleTag(tag)} style={{
@@ -614,17 +671,35 @@ export default function App() {
               background:"none",cursor:"pointer",color:"#C9B8BF",display:"flex",alignItems:"center",gap:2
             }}><I.Plus/> 管理</button>
           </div>
+          {/* Notes */}
+          {showNotes && <div style={{marginTop:10,animation:"slideIn 0.2s ease"}}>
+            <input value={inputNotes} onChange={e=>setInputNotes(e.target.value)}
+              placeholder="备注：来源、用途、心情…（复制时不会带上）"
+              style={{width:"100%",padding:"8px 12px",borderRadius:10,
+                border:"1.5px solid #F0E6DF",fontSize:12,color:"#8A7A6D",
+                background:"#FFFBF5",outline:"none",fontFamily:"inherit"}}/>
+          </div>}
           {/* Actions */}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}>
-            <div style={{display:"flex",gap:4,alignItems:"center"}}>
+            <div style={{display:"flex",gap:2,alignItems:"center"}}>
               <FormatTools text={inputText} onFormat={setInputText}/>
+              <button onClick={()=>insertFormat("**")} title="加粗" style={{
+                background:"none",border:"none",cursor:"pointer",color:"#B39DAD",
+                padding:"4px 6px",borderRadius:6,fontSize:13,fontWeight:800,fontFamily:"serif",
+                lineHeight:1
+              }}>B</button>
+              <button onClick={()=>insertFormat("==")} title="高亮" style={{
+                background:"none",border:"none",cursor:"pointer",color:"#B39DAD",
+                padding:"4px 6px",borderRadius:6,fontSize:11,fontWeight:600,lineHeight:1,
+                display:"flex",alignItems:"center"
+              }}><span style={{background:"#FCEABB",borderRadius:2,padding:"1px 4px"}}>H</span></button>
               <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={handleImageUpload}/>
               <button onClick={()=>fileRef.current?.click()} style={{
                 background:"none",border:"none",cursor:"pointer",color:"#B39DAD",
                 padding:6,borderRadius:8,display:"flex",alignItems:"center",gap:4,fontSize:12
               }}><I.Img/> 图片</button>
               {inputText.length > 0 && <span style={{fontSize:11,color:"#C9B8BF",fontWeight:500,
-                marginLeft:4}}>{inputText.length}字</span>}
+                marginLeft:4}}>{stripFormat(inputText).length}字</span>}
             </div>
             <button onClick={handleSave} disabled={saving} style={{
               background: hasContent ? "linear-gradient(135deg, #D4A5C9 0%, #C9A5D4 100%)" : "#E8DFD8",
