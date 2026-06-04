@@ -16,10 +16,10 @@ export async function fetchRecords() {
   return data || []
 }
 
-export async function createRecord({ content, tags, images, pinned }) {
+export async function createRecord({ content, tags, images, pinned, notes }) {
   const { data, error } = await supabase
     .from('records')
-    .insert([{ content, tags, images, pinned: pinned || false }])
+    .insert([{ content, tags, images, pinned: pinned || false, notes: notes || '' }])
     .select()
     .single()
   if (error) throw error
