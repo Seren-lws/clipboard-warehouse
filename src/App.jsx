@@ -65,6 +65,7 @@ const I = {
   Close: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
   Edit: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>,
   Heart: ({f}) => <svg width="15" height="15" viewBox="0 0 24 24" fill={f?"currentColor":"none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
+  Ai: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7L12 16.4 5.7 21l2.3-7L2 9.4h7.6z"/></svg>,
 }
 
 /* ====== Toast ====== */
@@ -348,6 +349,172 @@ function RecordCard({ record, onPin, onFavorite, onDelete, onCopy, onEdit, onPre
   )
 }
 
+/* ====== AI Chat Modal ====== */
+function AiChat({ records, allTags, onClose }) {
+  const [aiTag, setAiTag] = useState(null)
+  const [selected, setSelected] = useState(new Set())
+  const [question, setQuestion] = useState("")
+  const [reply, setReply] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const replyRef = useRef(null)
+
+  const filtered = aiTag ? records.filter(r => r.tags.includes(aiTag)) : records
+  const toggleSelect = (id) => setSelected(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+  const selectAll = () => setSelected(new Set(filtered.map(r => r.id)))
+  const selectNone = () => setSelected(new Set())
+
+  const handleSend = async () => {
+    if (!question.trim() || selected.size === 0) return
+    setLoading(true); setError(""); setReply("")
+    const context = records
+      .filter(r => selected.has(r.id))
+      .map(r => {
+        const meta = [`时间：${fmtFull(r.created_at)}`]
+        if (r.tags.length) meta.push(`标签：${r.tags.join("、")}`)
+        if (r.notes) meta.push(`备注：${r.notes}`)
+        return `[${meta.join(" | ")}]\n${stripFormat(r.content)}`
+      }).join("\n\n---\n\n")
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: "你是一个私人笔记助手。用户会给你一些笔记内容作为参考，请根据这些内容回答用户的问题。回答要简洁、有洞察力、温柔。如果笔记内容不足以回答问题，请如实说明。" },
+            { role: "user", content: `以下是我选择的笔记内容：\n\n${context}\n\n---\n\n我的问题：${question}` }
+          ]
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "请求失败")
+      setReply(data.reply)
+      setTimeout(() => replyRef.current?.scrollIntoView({ behavior: "smooth" }), 100)
+    } catch (e) {
+      setError(e.message || "请求失败，请检查 API 配置")
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(93,78,96,0.4)",zIndex:100,
+      display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(4px)"
+    }} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        background:"#FFFBF7",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:520,
+        maxHeight:"90vh",display:"flex",flexDirection:"column",
+        boxShadow:"0 -10px 40px rgba(93,78,96,0.15)"
+      }}>
+        {/* Header */}
+        <div style={{padding:"18px 20px 12px",borderBottom:"1px solid #F0EAE4",
+          display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+          <h3 style={{margin:0,fontSize:16,color:"#5D4E60",fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+            <I.Ai/> AI 洞察
+          </h3>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"#B39DAD"}}><I.Close/></button>
+        </div>
+
+        {/* Scrollable content */}
+        <div style={{flex:1,overflowY:"auto",padding:"12px 20px"}}>
+          {/* Tag filter */}
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:11,color:"#B39DAD",fontWeight:600,marginBottom:8}}>选择标签</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              <button onClick={()=>{setAiTag(null);setSelected(new Set())}} style={{
+                padding:"4px 12px",borderRadius:8,fontSize:12,fontWeight:500,border:"none",cursor:"pointer",
+                background:aiTag===null?"#5D4E60":"#F0EAE4",color:aiTag===null?"white":"#8A7A6D"
+              }}>全部</button>
+              {allTags.filter(t => records.some(r => r.tags.includes(t))).map(tag => (
+                <button key={tag} onClick={()=>{setAiTag(tag);setSelected(new Set())}} style={{
+                  padding:"4px 12px",borderRadius:8,fontSize:12,fontWeight:500,border:"none",cursor:"pointer",
+                  background:aiTag===tag?getTagColor(tag):`${getTagColor(tag)}15`,
+                  color:aiTag===tag?"white":getTagColor(tag)
+                }}>{tag}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Record selection */}
+          <div style={{marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <span style={{fontSize:11,color:"#B39DAD",fontWeight:600}}>
+                选择内容（{selected.size}/{filtered.length}）
+              </span>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={selectAll} style={{fontSize:11,color:"#D4A5C9",background:"none",border:"none",cursor:"pointer",fontWeight:500}}>全选</button>
+                <button onClick={selectNone} style={{fontSize:11,color:"#B39DAD",background:"none",border:"none",cursor:"pointer",fontWeight:500}}>取消</button>
+              </div>
+            </div>
+            <div style={{maxHeight:200,overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
+              {filtered.length === 0 ? (
+                <div style={{textAlign:"center",padding:20,color:"#C9B8BF",fontSize:12}}>该标签下没有记录</div>
+              ) : filtered.map(r => (
+                <label key={r.id} style={{
+                  display:"flex",gap:10,padding:"8px 12px",borderRadius:10,cursor:"pointer",
+                  background:selected.has(r.id)?"#F5EDE8":"white",
+                  border:selected.has(r.id)?"1.5px solid #D4A5C9":"1px solid #F0EAE4",
+                  transition:"all 0.15s",alignItems:"flex-start"
+                }}>
+                  <input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggleSelect(r.id)}
+                    style={{marginTop:2,accentColor:"#D4A5C9"}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,color:"#4A3F4A",lineHeight:1.5,
+                      overflow:"hidden",textOverflow:"ellipsis",display:"-webkit-box",
+                      WebkitLineClamp:2,WebkitBoxOrient:"vertical"
+                    }}>{stripFormat(r.content)}</div>
+                    <div style={{fontSize:10,color:"#B5A1A8",marginTop:2}}>{fmtFull(r.created_at)}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* AI Reply */}
+          {reply && <div ref={replyRef} style={{marginBottom:12,padding:"14px 16px",borderRadius:12,
+            background:"linear-gradient(135deg, #F5EDE8, #FDF6FF)",border:"1px solid #E8DFD8",
+            fontSize:13,lineHeight:1.8,color:"#4A3F4A",whiteSpace:"pre-wrap"}}>
+            <div style={{fontSize:10,color:"#D4A5C9",fontWeight:600,marginBottom:8}}>✦ AI 回复</div>
+            {reply}
+          </div>}
+          {error && <div style={{marginBottom:12,padding:"10px 14px",borderRadius:10,
+            background:"#FFF0F0",border:"1px solid #F5D5D5",fontSize:12,color:"#C97070"}}>{error}</div>}
+        </div>
+
+        {/* Input area - fixed at bottom */}
+        <div style={{padding:"12px 20px 20px",borderTop:"1px solid #F0EAE4",flexShrink:0,
+          background:"#FFFBF7"}}>
+          <div style={{display:"flex",gap:8}}>
+            <input value={question} onChange={e=>setQuestion(e.target.value)}
+              onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!loading){e.preventDefault();handleSend()}}}
+              placeholder={selected.size===0?"请先选择内容…":"问点什么吧…"}
+              disabled={selected.size===0||loading}
+              style={{flex:1,padding:"10px 14px",borderRadius:12,border:"1.5px solid #EDE4DD",
+                fontSize:13,outline:"none",background:selected.size===0?"#F5F0EB":"white",
+                color:"#5D4E60",fontFamily:"inherit"}}/>
+            <button onClick={handleSend}
+              disabled={!question.trim()||selected.size===0||loading}
+              style={{
+                padding:"10px 18px",borderRadius:12,border:"none",fontSize:13,fontWeight:600,
+                background:question.trim()&&selected.size>0&&!loading
+                  ?"linear-gradient(135deg, #B5A1D4, #D4A5C9)":"#E8DFD8",
+                color:"white",cursor:question.trim()&&selected.size>0&&!loading?"pointer":"default",
+                transition:"all 0.2s",minWidth:56
+              }}>{loading ? "…" : "发送"}</button>
+          </div>
+          {selected.size > 0 && <div style={{fontSize:10,color:"#C9B8BF",marginTop:6,paddingLeft:4}}>
+            已选 {selected.size} 条记录作为上下文
+          </div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ====== Main App ====== */
 export default function App() {
   const [records, setRecords] = useState([])
@@ -365,6 +532,7 @@ export default function App() {
   const [showExport, setShowExport] = useState(false)
   const [previewImg, setPreviewImg] = useState(null)
   const [showFavorites, setShowFavorites] = useState(false)
+  const [showAi, setShowAi] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [showSearch, setShowSearch] = useState(false)
   const [toast, setToast] = useState({ msg: "", show: false })
@@ -576,6 +744,11 @@ export default function App() {
               padding:"6px 8px",borderRadius:10,border:"none",background:"transparent",
               color:"#B39DAD",cursor:"pointer",display:"flex",alignItems:"center"
             }}><I.Export/></button>
+            <button onClick={()=>setShowAi(true)} style={{
+              padding:"6px 8px",borderRadius:10,border:"none",
+              background:"transparent",color:"#B39DAD",
+              cursor:"pointer",display:"flex",alignItems:"center",transition:"all 0.2s"
+            }}><I.Ai/></button>
           </div>
         </div>
 
@@ -779,6 +952,7 @@ export default function App() {
         onAdd={handleAddTag} onDelete={handleDeleteTag} onClose={()=>setShowTagManager(false)}/>}
       {showExport && <ExportModal records={records} filterTag={filterTag}
         calendarDate={calendarDate} onClose={()=>setShowExport(false)}/>}
+      {showAi && <AiChat records={records} allTags={allTags} onClose={()=>setShowAi(false)}/>}
       {previewImg && <div onClick={()=>setPreviewImg(null)} style={{
         position:"fixed",inset:0,background:"rgba(30,25,30,0.9)",zIndex:9999,
         display:"flex",alignItems:"center",justifyContent:"center",
