@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from "react"
 import {
   fetchRecords, createRecord, updateRecord, deleteRecord,
   fetchCustomTags, addCustomTag, deleteCustomTag,
-  uploadImage
+  uploadImage,
+  signIn, signOut, onAuthChange, getSession
 } from "./lib/supabase"
 
 const DEFAULT_TAGS = [
@@ -515,8 +516,63 @@ function AiChat({ records, allTags, onClose }) {
   )
 }
 
+/* ====== Login Screen ====== */
+function LoginScreen({ onLogin }) {
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+
+  const handleLogin = async (e) => {
+    e.preventDefault()
+    if (!email || !password) return
+    setLoading(true); setError("")
+    try {
+      await signIn(email, password)
+      onLogin()
+    } catch (err) {
+      setError("登录失败，请检查邮箱和密码")
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div style={{minHeight:"100vh",background:"#FBF6F1",display:"flex",alignItems:"center",
+      justifyContent:"center",fontFamily:"'Noto Sans SC','PingFang SC',-apple-system,sans-serif",padding:20}}>
+      <div style={{width:"100%",maxWidth:340,textAlign:"center"}}>
+        <div style={{fontSize:48,marginBottom:8}}>✿</div>
+        <h1 style={{fontSize:22,fontWeight:700,color:"#5D4E60",marginBottom:4}}>剪贴板仓库</h1>
+        <p style={{fontSize:13,color:"#B39DAD",marginBottom:32}}>登录后开始使用</p>
+        <div style={{background:"white",borderRadius:20,padding:28,
+          boxShadow:"0 4px 24px rgba(180,160,170,0.1)",border:"1px solid #F0EAE4"}}>
+          <div style={{marginBottom:16}}>
+            <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="邮箱"
+              style={{width:"100%",padding:"12px 16px",borderRadius:12,border:"1.5px solid #EDE4DD",
+                fontSize:14,outline:"none",color:"#5D4E60",background:"#FFF8F2",fontFamily:"inherit",
+                boxSizing:"border-box"}}/>
+          </div>
+          <div style={{marginBottom:20}}>
+            <input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="密码"
+              onKeyDown={e=>{if(e.key==="Enter")handleLogin(e)}}
+              style={{width:"100%",padding:"12px 16px",borderRadius:12,border:"1.5px solid #EDE4DD",
+                fontSize:14,outline:"none",color:"#5D4E60",background:"#FFF8F2",fontFamily:"inherit",
+                boxSizing:"border-box"}}/>
+          </div>
+          {error && <div style={{fontSize:12,color:"#C97070",marginBottom:12}}>{error}</div>}
+          <button onClick={handleLogin} disabled={loading} style={{
+            width:"100%",padding:"12px",borderRadius:12,border:"none",fontSize:14,fontWeight:600,
+            background:loading?"#E8DFD8":"linear-gradient(135deg, #D4A5C9 0%, #C9A5D4 100%)",
+            color:"white",cursor:loading?"default":"pointer",
+            boxShadow:"0 4px 15px rgba(212,165,201,0.3)",transition:"all 0.2s"
+          }}>{loading ? "登录中…" : "登录"}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ====== Main App ====== */
-export default function App() {
+function MainApp() {
   const [records, setRecords] = useState([])
   const [customTags, setCustomTags] = useState([])
   const [inputText, setInputText] = useState("")
@@ -945,7 +1001,10 @@ export default function App() {
 
       <div className="app-bottom" style={{
         padding:"12px 20px 20px",textAlign:"center",fontSize:11,color:"#C9B8BF",fontWeight:500
-      }}>共 {records.length} 条记录 · {allTags.length} 个标签 · {records.filter(r=>r.pinned).length} 置顶 · {records.filter(r=>r.favorited).length} 收藏</div>
+      }}>共 {records.length} 条记录 · {allTags.length} 个标签 · {records.filter(r=>r.pinned).length} 置顶 · {records.filter(r=>r.favorited).length} 收藏
+        <br/><button onClick={()=>signOut()} style={{fontSize:11,color:"#C9B8BF",background:"none",
+          border:"none",cursor:"pointer",marginTop:4,textDecoration:"underline"}}>退出登录</button>
+      </div>
 
       <Toast message={toast.msg} visible={toast.show}/>
       {showTagManager && <TagManager tags={allTags} customTags={customTags}
@@ -970,4 +1029,29 @@ export default function App() {
       </div>}
     </div>
   )
+}
+
+/* ====== Auth Wrapper ====== */
+export default function App() {
+  const [session, setSession] = useState(null)
+  const [checking, setChecking] = useState(true)
+
+  useEffect(() => {
+    getSession().then(s => { setSession(s); setChecking(false) })
+    const { data: { subscription } } = onAuthChange(s => setSession(s))
+    return () => subscription.unsubscribe()
+  }, [])
+
+  if (checking) {
+    return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
+      background:"#FBF6F1",fontFamily:"'Noto Sans SC',sans-serif"}}>
+      <div style={{color:"#D4A5C9",fontSize:14}}>加载中…</div>
+    </div>
+  }
+
+  if (!session) {
+    return <LoginScreen onLogin={() => {}} />
+  }
+
+  return <MainApp />
 }
