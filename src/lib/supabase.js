@@ -40,10 +40,10 @@ export async function fetchRecords() {
   return data || []
 }
 
-export async function createRecord({ content, tags, images, pinned, notes }) {
+export async function createRecord({ content, tags, images, pinned, notes, files }) {
   const { data, error } = await supabase
     .from('records')
-    .insert([{ content, tags, images, pinned: pinned || false, notes: notes || '' }])
+    .insert([{ content, tags, images, pinned: pinned || false, notes: notes || '', files: files || [] }])
     .select()
     .single()
   if (error) throw error
@@ -118,5 +118,30 @@ export async function deleteImage(url) {
   const path = url.split('/clipboard-images/')[1]
   if (path) {
     await supabase.storage.from('clipboard-images').remove([path])
+  }
+}
+
+// ========== File Upload ==========
+
+export async function uploadFile(file) {
+  const ext = file.name.split('.').pop()
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const fileName = `${Date.now()}-${safeName}`
+  const filePath = `files/${fileName}`
+
+  const { error } = await supabase.storage
+    .from('clipboard-images')
+    .upload(filePath, file)
+  if (error) throw error
+
+  const { data } = supabase.storage
+    .from('clipboard-images')
+    .getPublicUrl(filePath)
+
+  return {
+    name: file.name,
+    url: data.publicUrl,
+    type: ext.toLowerCase(),
+    size: file.size
   }
 }
