@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react"
 import {
   fetchRecords, createRecord, updateRecord, deleteRecord,
   fetchCustomTags, addCustomTag, deleteCustomTag,
-  uploadImage,
+  uploadImage, uploadFile,
   signIn, signOut, onAuthChange, getSession
 } from "./lib/supabase"
 
@@ -67,6 +67,8 @@ const I = {
   Edit: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>,
   Heart: ({f}) => <svg width="15" height="15" viewBox="0 0 24 24" fill={f?"currentColor":"none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
   Ai: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7L12 16.4 5.7 21l2.3-7L2 9.4h7.6z"/></svg>,
+  File: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>,
+  Clip: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>,
 }
 
 /* ====== Toast ====== */
@@ -335,6 +337,22 @@ function RecordCard({ record, onPin, onFavorite, onDelete, onCopy, onEdit, onPre
           }}/>)}
         </div>
       )}
+      {record.files && record.files.length > 0 && (
+        <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:10}}>
+          {record.files.map((f,i) => <a key={i} href={f.url} target="_blank" rel="noopener noreferrer"
+            style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",
+              background:"#F5EDE8",borderRadius:8,fontSize:12,color:"#5D4E60",
+              textDecoration:"none",transition:"background 0.15s"}}
+            onMouseEnter={e=>e.currentTarget.style.background="#EDE4DD"}
+            onMouseLeave={e=>e.currentTarget.style.background="#F5EDE8"}>
+            <I.File/>
+            <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</span>
+            <span style={{fontSize:10,color:"#B39DAD",flexShrink:0}}>
+              {f.size < 1024*1024 ? Math.round(f.size/1024)+"KB" : (f.size/1024/1024).toFixed(1)+"MB"}
+            </span>
+          </a>)}
+        </div>
+      )}
       {record.notes && <div style={{fontSize:12,color:"#A89585",marginBottom:8,
         padding:"6px 10px",background:"#FAF6F0",borderRadius:8,borderLeft:"3px solid #E8C07C",
         lineHeight:1.5}}>✎ {record.notes}</div>}
@@ -580,6 +598,7 @@ function MainApp() {
   const [selectedTags, setSelectedTags] = useState([])
   const [showNotes, setShowNotes] = useState(false)
   const [imgFiles, setImgFiles] = useState([]) // { file, preview }
+  const [docFiles, setDocFiles] = useState([]) // { file, name }
   const [view, setView] = useState("list")
   const [filterTag, setFilterTag] = useState(null)
   const [calendarDate, setCalendarDate] = useState(null)
@@ -596,6 +615,7 @@ function MainApp() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const fileRef = useRef(null)
+  const docRef = useRef(null)
   const searchRef = useRef(null)
   const textareaRef = useRef(null)
 
@@ -632,7 +652,7 @@ function MainApp() {
   }
 
   const handleSave = async () => {
-    if ((!inputText.trim() && imgFiles.length === 0) || saving) return
+    if ((!inputText.trim() && imgFiles.length === 0 && docFiles.length === 0) || saving) return
     setSaving(true)
     try {
       // Upload images
@@ -641,25 +661,33 @@ function MainApp() {
         const url = await uploadImage(file)
         imageUrls.push(url)
       }
-      // Also keep existing images when editing
+      // Upload files
+      const uploadedFiles = []
+      for (const { file } of docFiles) {
+        const info = await uploadFile(file)
+        uploadedFiles.push(info)
+      }
+      // Keep existing when editing
       const existingImages = editing?.images || []
+      const existingFiles = editing?.files || []
       const allImages = [...existingImages, ...imageUrls]
+      const allFiles = [...existingFiles, ...uploadedFiles]
 
       if (editing) {
         const updated = await updateRecord(editing.id, {
-          content: inputText, tags: selectedTags, images: allImages, notes: inputNotes
+          content: inputText, tags: selectedTags, images: allImages, notes: inputNotes, files: allFiles
         })
         setRecords(prev => prev.map(r => r.id === editing.id ? updated : r))
         setEditing(null)
         flash("已更新 ✨")
       } else {
         const rec = await createRecord({
-          content: inputText, tags: selectedTags, images: allImages, notes: inputNotes
+          content: inputText, tags: selectedTags, images: allImages, notes: inputNotes, files: allFiles
         })
         setRecords(prev => [rec, ...prev])
         flash("已保存 ✨")
       }
-      setInputText(""); setInputNotes(""); setSelectedTags([]); setImgFiles([]); setShowNotes(false)
+      setInputText(""); setInputNotes(""); setSelectedTags([]); setImgFiles([]); setDocFiles([]); setShowNotes(false)
     } catch (e) {
       console.error("Save error:", e)
       flash("保存失败，请重试")
@@ -735,7 +763,7 @@ function MainApp() {
   )
 
   const cancelEdit = () => {
-    setEditing(null); setInputText(""); setInputNotes(""); setSelectedTags([]); setImgFiles([]); setShowNotes(false)
+    setEditing(null); setInputText(""); setInputNotes(""); setSelectedTags([]); setImgFiles([]); setDocFiles([]); setShowNotes(false)
   }
 
   const handleAddTag = async (name) => {
@@ -779,7 +807,7 @@ function MainApp() {
       background:"#FBF6F1"}}><div style={{color:"#D4A5C9",fontSize:14}}>加载中…</div></div>
   }
 
-  const hasContent = inputText.trim() || imgFiles.length > 0
+  const hasContent = inputText.trim() || imgFiles.length > 0 || docFiles.length > 0
 
   return (
     <div style={{minHeight:"100vh",background:"#FBF6F1",maxWidth:520,margin:"0 auto",position:"relative"}}>
@@ -879,6 +907,22 @@ function MainApp() {
             {editing.images.map((img,i) => <img key={i} src={img} style={{
               width:56,height:56,objectFit:"cover",borderRadius:10,border:"1px solid #F0E6DF",opacity:0.7}}/>)}
           </div>}
+          {/* Pending doc files */}
+          {docFiles.length > 0 && <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:8}}>
+            {docFiles.map((f,i) => <div key={i} style={{display:"flex",alignItems:"center",gap:8,
+              padding:"6px 10px",background:"#F5EDE8",borderRadius:8,fontSize:12,color:"#5D4E60"}}>
+              <I.File/><span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</span>
+              <button onClick={()=>setDocFiles(prev=>prev.filter((_,j)=>j!==i))} style={{
+                background:"none",border:"none",cursor:"pointer",color:"#D4B8B8",fontSize:14,padding:0}}>×</button>
+            </div>)}
+          </div>}
+          {/* Existing files when editing */}
+          {editing && editing.files && editing.files.length > 0 && <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:8}}>
+            {editing.files.map((f,i) => <div key={i} style={{display:"flex",alignItems:"center",gap:8,
+              padding:"6px 10px",background:"#F0EAE4",borderRadius:8,fontSize:12,color:"#8A7A6D"}}>
+              <I.File/><span>{f.name}</span>
+            </div>)}
+          </div>}
           {/* Tags */}
           <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10,paddingTop:10,borderTop:"1px solid #F5EDE8"}}>
             <button onClick={()=>setShowNotes(!showNotes)} style={{
@@ -927,6 +971,12 @@ function MainApp() {
                 background:"none",border:"none",cursor:"pointer",color:"#B39DAD",
                 padding:6,borderRadius:8,display:"flex",alignItems:"center",gap:4,fontSize:12
               }}><I.Img/> 图片</button>
+              <input ref={docRef} type="file" accept=".md,.doc,.docx,.pdf,.txt,.csv,.json,.xlsx" multiple hidden
+                onChange={e=>{Array.from(e.target.files).forEach(f=>setDocFiles(prev=>[...prev,{file:f,name:f.name}]));e.target.value=""}}/>
+              <button onClick={()=>docRef.current?.click()} style={{
+                background:"none",border:"none",cursor:"pointer",color:"#B39DAD",
+                padding:6,borderRadius:8,display:"flex",alignItems:"center",gap:4,fontSize:12
+              }}><I.Clip/> 文件</button>
               {inputText.length > 0 && <span style={{fontSize:11,color:"#C9B8BF",fontWeight:500,
                 marginLeft:4}}>{stripFormat(inputText).length}字</span>}
             </div>
