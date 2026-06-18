@@ -613,6 +613,9 @@ function MainApp() {
   const [toast, setToast] = useState({ msg: "", show: false })
   const [editing, setEditing] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [totalRecords, setTotalRecords] = useState(0)
+  const PAGE_SIZE = 50
   const [saving, setSaving] = useState(false)
   const fileRef = useRef(null)
   const docRef = useRef(null)
@@ -625,13 +628,27 @@ function MainApp() {
   useEffect(() => {
     (async () => {
       try {
-        const [recs, ct] = await Promise.all([fetchRecords(), fetchCustomTags()])
+        const [{ data: recs, total }, ct] = await Promise.all([fetchRecords(PAGE_SIZE, 0), fetchCustomTags()])
         setRecords(recs)
+        setTotalRecords(total)
         setCustomTags(ct)
       } catch (e) { console.error("Load error:", e) }
       setLoading(false)
     })()
   }, [])
+
+  const loadMore = async () => {
+    if (loadingMore) return
+    setLoadingMore(true)
+    try {
+      const { data: more, total } = await fetchRecords(PAGE_SIZE, records.length)
+      setRecords(prev => [...prev, ...more])
+      setTotalRecords(total)
+    } catch (e) { console.error("Load more error:", e) }
+    setLoadingMore(false)
+  }
+
+  const hasMore = records.length < totalRecords
 
   useEffect(() => { if (showSearch && searchRef.current) searchRef.current.focus() }, [showSearch])
 
@@ -685,6 +702,7 @@ function MainApp() {
           content: inputText, tags: selectedTags, images: allImages, notes: inputNotes, files: allFiles
         })
         setRecords(prev => [rec, ...prev])
+        setTotalRecords(prev => prev + 1)
         flash("已保存 ✨")
       }
       setInputText(""); setInputNotes(""); setSelectedTags([]); setImgFiles([]); setDocFiles([]); setShowNotes(false)
@@ -713,6 +731,7 @@ function MainApp() {
     try {
       await deleteRecord(id)
       setRecords(prev => prev.filter(r => r.id !== id))
+      setTotalRecords(prev => prev - 1)
       flash("已删除")
     } catch (e) { flash("删除失败") }
   }
@@ -801,11 +820,6 @@ function MainApp() {
 
   const tagCounts = {}
   records.forEach(r => r.tags.forEach(t => { tagCounts[t] = (tagCounts[t]||0)+1 }))
-
-  if (loading) {
-    return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
-      background:"#FBF6F1"}}><div style={{color:"#D4A5C9",fontSize:14}}>加载中…</div></div>
-  }
 
   const hasContent = inputText.trim() || imgFiles.length > 0 || docFiles.length > 0
 
@@ -1036,22 +1050,33 @@ function MainApp() {
           fontSize:12,color:"#B39DAD",marginBottom:10,fontWeight:500
         }}>共 {displayRecords.length} 条记录</div>}
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {displayRecords.length===0 ? (
+          {loading ? (
+            <div style={{textAlign:"center",padding:"48px 20px",color:"#D4A5C9",fontSize:13}}>
+              加载中…
+            </div>
+          ) : displayRecords.length===0 ? (
             <div style={{textAlign:"center",padding:"48px 20px",color:"#C9B8BF",fontSize:13}}>
               {records.length===0 ? "还没有记录，写点什么吧 ✿" : "没有找到匹配的记录"}
             </div>
           ) : displayRecords.map((r,i) => (
-            <div key={r.id} style={{animation:`slideIn 0.25s ease ${i*0.03}s both`}}>
+            <div key={r.id} style={{animation:`slideIn 0.25s ease ${Math.min(i,10)*0.03}s both`}}>
               <RecordCard record={r} onPin={handlePin} onFavorite={handleFavorite} onDelete={handleDelete}
                 onCopy={handleCopy} onEdit={handleEdit} onPreview={setPreviewImg} sq={searchQuery.trim()}/>
             </div>
           ))}
+          {hasMore && !loading && !filterTag && !calendarDate && !searchQuery.trim() && !showFavorites && (
+            <button onClick={loadMore} disabled={loadingMore} style={{
+              padding:"12px",borderRadius:12,border:"1.5px solid #EDE4DD",background:"white",
+              color:loadingMore?"#C9B8BF":"#D4A5C9",fontSize:13,fontWeight:500,cursor:loadingMore?"default":"pointer",
+              transition:"all 0.2s"
+            }}>{loadingMore ? "加载中…" : `加载更多（还有 ${totalRecords - records.length} 条）`}</button>
+          )}
         </div>
       </div>
 
       <div className="app-bottom" style={{
         padding:"12px 20px 20px",textAlign:"center",fontSize:11,color:"#C9B8BF",fontWeight:500
-      }}>共 {records.length} 条记录 · {allTags.length} 个标签 · {records.filter(r=>r.pinned).length} 置顶 · {records.filter(r=>r.favorited).length} 收藏
+      }}>共 {totalRecords} 条记录 · {allTags.length} 个标签 · {records.filter(r=>r.pinned).length} 置顶 · {records.filter(r=>r.favorited).length} 收藏
         <br/><button onClick={()=>signOut()} style={{fontSize:11,color:"#C9B8BF",background:"none",
           border:"none",cursor:"pointer",marginTop:4,textDecoration:"underline"}}>退出登录</button>
       </div>
