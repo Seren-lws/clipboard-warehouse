@@ -31,13 +31,14 @@ export async function getSession() {
 
 // ========== Records ==========
 
-export async function fetchRecords() {
-  const { data, error } = await supabase
+export async function fetchRecords(limit = 50, offset = 0) {
+  const { data, error, count } = await supabase
     .from('records')
-    .select('*')
+    .select('*', { count: 'exact' })
     .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1)
   if (error) throw error
-  return data || []
+  return { data: data || [], total: count || 0 }
 }
 
 export async function createRecord({ content, tags, images, pinned, notes, files }) {
