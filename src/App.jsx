@@ -613,9 +613,6 @@ function MainApp() {
   const [toast, setToast] = useState({ msg: "", show: false })
   const [editing, setEditing] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [totalRecords, setTotalRecords] = useState(0)
-  const PAGE_SIZE = 50
   const [saving, setSaving] = useState(false)
   const fileRef = useRef(null)
   const docRef = useRef(null)
@@ -624,31 +621,17 @@ function MainApp() {
 
   const allTags = [...DEFAULT_TAGS, ...customTags.filter(t => !DEFAULT_TAGS.includes(t))]
 
-  // Load data
+  // Load data in background - UI shows immediately
   useEffect(() => {
     (async () => {
       try {
-        const [{ data: recs, total }, ct] = await Promise.all([fetchRecords(PAGE_SIZE, 0), fetchCustomTags()])
+        const [recs, ct] = await Promise.all([fetchRecords(), fetchCustomTags()])
         setRecords(recs)
-        setTotalRecords(total)
         setCustomTags(ct)
       } catch (e) { console.error("Load error:", e) }
       setLoading(false)
     })()
   }, [])
-
-  const loadMore = async () => {
-    if (loadingMore) return
-    setLoadingMore(true)
-    try {
-      const { data: more, total } = await fetchRecords(PAGE_SIZE, records.length)
-      setRecords(prev => [...prev, ...more])
-      setTotalRecords(total)
-    } catch (e) { console.error("Load more error:", e) }
-    setLoadingMore(false)
-  }
-
-  const hasMore = records.length < totalRecords
 
   useEffect(() => { if (showSearch && searchRef.current) searchRef.current.focus() }, [showSearch])
 
@@ -702,7 +685,6 @@ function MainApp() {
           content: inputText, tags: selectedTags, images: allImages, notes: inputNotes, files: allFiles
         })
         setRecords(prev => [rec, ...prev])
-        setTotalRecords(prev => prev + 1)
         flash("已保存 ✨")
       }
       setInputText(""); setInputNotes(""); setSelectedTags([]); setImgFiles([]); setDocFiles([]); setShowNotes(false)
@@ -731,7 +713,6 @@ function MainApp() {
     try {
       await deleteRecord(id)
       setRecords(prev => prev.filter(r => r.id !== id))
-      setTotalRecords(prev => prev - 1)
       flash("已删除")
     } catch (e) { flash("删除失败") }
   }
@@ -869,20 +850,21 @@ function MainApp() {
         </div>}
 
         <div style={{display:"flex",gap:4,marginBottom:8}}>
-          <button onClick={()=>{setView("list");setCalendarDate(null);setShowFavorites(false)}} style={{
+          <button onClick={()=>{setView("list");setCalendarDate(null);setShowFavorites(false);setShowTagPanel(false);setFilterTag(null)}} style={{
             padding:"6px 12px",borderRadius:10,border:"none",fontSize:12,
-            background:view==="list"&&!showFavorites?"#5D4E60":"transparent",color:view==="list"&&!showFavorites?"white":"#B39DAD",
+            background:view==="list"&&!showFavorites&&!showTagPanel?"#5D4E60":"transparent",
+            color:view==="list"&&!showFavorites&&!showTagPanel?"white":"#B39DAD",
             cursor:"pointer",fontWeight:500,transition:"all 0.2s"}}>列表</button>
-          <button onClick={()=>{setShowFavorites(!showFavorites);setView("list");setCalendarDate(null)}} style={{
+          <button onClick={()=>{setShowFavorites(true);setView("list");setCalendarDate(null);setShowTagPanel(false);setFilterTag(null)}} style={{
             padding:"6px 12px",borderRadius:10,border:"none",fontSize:12,
             background:showFavorites?"#E88CA5":"transparent",color:showFavorites?"white":"#B39DAD",
             cursor:"pointer",fontWeight:500,transition:"all 0.2s"}}>♥ 收藏</button>
-          <button onClick={()=>{if(view==="calendar"){setView("list");setCalendarDate(null)}else setView("calendar")}} style={{
+          <button onClick={()=>{setView("calendar");setShowFavorites(false);setShowTagPanel(false);setFilterTag(null)}} style={{
             padding:"6px 12px",borderRadius:10,border:"none",fontSize:12,
             background:view==="calendar"?"#5D4E60":"transparent",color:view==="calendar"?"white":"#B39DAD",
             cursor:"pointer",fontWeight:500,display:"flex",alignItems:"center",gap:4,transition:"all 0.2s"
           }}><I.Cal/> 日历</button>
-          <button onClick={()=>setShowTagPanel(!showTagPanel)} style={{
+          <button onClick={()=>{setShowTagPanel(true);setView("list");setCalendarDate(null);setShowFavorites(false)}} style={{
             padding:"6px 12px",borderRadius:10,border:"none",fontSize:12,
             background:showTagPanel?"#5D4E60":"transparent",color:showTagPanel?"white":"#B39DAD",
             cursor:"pointer",fontWeight:500,display:"flex",alignItems:"center",gap:4,transition:"all 0.2s"
@@ -1064,19 +1046,12 @@ function MainApp() {
                 onCopy={handleCopy} onEdit={handleEdit} onPreview={setPreviewImg} sq={searchQuery.trim()}/>
             </div>
           ))}
-          {hasMore && !loading && !filterTag && !calendarDate && !searchQuery.trim() && !showFavorites && (
-            <button onClick={loadMore} disabled={loadingMore} style={{
-              padding:"12px",borderRadius:12,border:"1.5px solid #EDE4DD",background:"white",
-              color:loadingMore?"#C9B8BF":"#D4A5C9",fontSize:13,fontWeight:500,cursor:loadingMore?"default":"pointer",
-              transition:"all 0.2s"
-            }}>{loadingMore ? "加载中…" : `加载更多（还有 ${totalRecords - records.length} 条）`}</button>
-          )}
         </div>
       </div>
 
       <div className="app-bottom" style={{
         padding:"12px 20px 20px",textAlign:"center",fontSize:11,color:"#C9B8BF",fontWeight:500
-      }}>共 {totalRecords} 条记录 · {allTags.length} 个标签 · {records.filter(r=>r.pinned).length} 置顶 · {records.filter(r=>r.favorited).length} 收藏
+      }}>共 {records.length} 条记录 · {allTags.length} 个标签 · {records.filter(r=>r.pinned).length} 置顶 · {records.filter(r=>r.favorited).length} 收藏
         <br/><button onClick={()=>signOut()} style={{fontSize:11,color:"#C9B8BF",background:"none",
           border:"none",cursor:"pointer",marginTop:4,textDecoration:"underline"}}>退出登录</button>
       </div>
