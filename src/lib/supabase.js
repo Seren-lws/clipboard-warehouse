@@ -95,6 +95,25 @@ export async function deleteCustomTag(name) {
   if (error) throw error
 }
 
+export async function renameCustomTag(oldName, newName) {
+  const { error } = await supabase
+    .from('custom_tags')
+    .update({ name: newName })
+    .eq('name', oldName)
+  if (error) throw error
+}
+
+export async function seedDefaultTags(defaults) {
+  const existing = await fetchCustomTags()
+  const toInsert = defaults.filter(t => !existing.includes(t))
+  if (toInsert.length > 0) {
+    const { error } = await supabase
+      .from('custom_tags')
+      .insert(toInsert.map(name => ({ name })))
+    if (error) throw error
+  }
+}
+
 // ========== Image Upload ==========
 
 export async function uploadImage(file) {
