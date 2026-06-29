@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react"
 import {
   fetchRecords, createRecord, updateRecord, deleteRecord,
-  fetchCustomTags, addCustomTag, deleteCustomTag,
+  fetchCustomTags, addCustomTag, deleteCustomTag, renameCustomTag, seedDefaultTags,
   uploadImage, uploadFile,
   signIn, signOut, onAuthChange, getSession
 } from "./lib/supabase"
@@ -113,14 +113,25 @@ function FormatTools({ text, onFormat }) {
 }
 
 /* ====== Tag Manager Modal ====== */
-function TagManager({ tags, customTags, onAdd, onDelete, onClose }) {
+function TagManager({ tags, onAdd, onDelete, onRename, onClose }) {
   const [v, setV] = useState("")
+  const [editing, setEditing] = useState(null)
+  const [editVal, setEditVal] = useState("")
+
+  const startRename = (tag) => { setEditing(tag); setEditVal(tag) }
+  const confirmRename = () => {
+    if (editVal.trim() && editVal.trim() !== editing) {
+      onRename(editing, editVal.trim())
+    }
+    setEditing(null); setEditVal("")
+  }
+
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(93,78,96,0.3)",zIndex:100,
       display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)"
     }} onClick={onClose}>
       <div onClick={e=>e.stopPropagation()} style={{
-        background:"#FFFBF7",borderRadius:20,padding:28,width:340,
+        background:"#FFFBF7",borderRadius:20,padding:28,width:360,
         boxShadow:"0 20px 60px rgba(93,78,96,0.2)"
       }}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
@@ -138,15 +149,23 @@ function TagManager({ tags, customTags, onAdd, onDelete, onClose }) {
             style={{background:"#D4A5C9",color:"white",border:"none",borderRadius:10,
               padding:"8px 14px",cursor:"pointer",fontSize:13,fontWeight:500}}>添加</button>
         </div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:8,maxHeight:300,overflowY:"auto"}}>
+        <div style={{fontSize:11,color:"#C9B8BF",marginBottom:10}}>点击标签名可重命名</div>
+        <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:320,overflowY:"auto"}}>
           {tags.map(tag => (
-            <div key={tag} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",
-              background:`${getTagColor(tag)}18`,borderRadius:10,fontSize:13,color:getTagColor(tag)}}>
-              {tag}
-              {customTags.includes(tag) && (
-                <button onClick={()=>onDelete(tag)} style={{background:"none",border:"none",cursor:"pointer",
-                  color:getTagColor(tag),padding:0,display:"flex",opacity:0.6}}>×</button>
+            <div key={tag} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",
+              background:`${getTagColor(tag)}10`,borderRadius:10,fontSize:13}}>
+              {editing === tag ? (
+                <input value={editVal} onChange={e=>setEditVal(e.target.value)} autoFocus
+                  onKeyDown={e=>{if(e.key==="Enter")confirmRename();if(e.key==="Escape"){setEditing(null)}}}
+                  onBlur={confirmRename}
+                  style={{flex:1,padding:"2px 8px",borderRadius:6,border:"1.5px solid #D4A5C9",
+                    fontSize:13,outline:"none",background:"white",color:"#5D4E60",fontFamily:"inherit"}}/>
+              ) : (
+                <span onClick={()=>startRename(tag)} style={{flex:1,color:getTagColor(tag),cursor:"pointer",
+                  fontWeight:500}}>{tag}</span>
               )}
+              <button onClick={()=>onDelete(tag)} style={{background:"none",border:"none",cursor:"pointer",
+                color:"#D4B8B8",padding:2,display:"flex",flexShrink:0,fontSize:16}}>×</button>
             </div>
           ))}
         </div>
@@ -608,6 +627,7 @@ function MainApp() {
   const [previewImg, setPreviewImg] = useState(null)
   const [showFavorites, setShowFavorites] = useState(false)
   const [showAi, setShowAi] = useState(false)
+  const [tagsExpanded, setTagsExpanded] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [showSearch, setShowSearch] = useState(false)
   const [toast, setToast] = useState({ msg: "", show: false })
@@ -619,12 +639,14 @@ function MainApp() {
   const searchRef = useRef(null)
   const textareaRef = useRef(null)
 
-  const allTags = [...DEFAULT_TAGS, ...customTags.filter(t => !DEFAULT_TAGS.includes(t))]
+  const allTags = customTags
 
   // Load data in background - UI shows immediately
   useEffect(() => {
     (async () => {
       try {
+        // Seed default tags on first run
+        await seedDefaultTags(DEFAULT_TAGS)
         const [recs, ct] = await Promise.all([fetchRecords(), fetchCustomTags()])
         setRecords(recs)
         setCustomTags(ct)
@@ -781,6 +803,23 @@ function MainApp() {
     } catch (e) { flash("删除失败") }
   }
 
+  const handleRenameTag = async (oldName, newName) => {
+    if (allTags.includes(newName)) { flash("标签已存在"); return }
+    try {
+      await renameCustomTag(oldName, newName)
+      setCustomTags(prev => prev.map(t => t === oldName ? newName : t))
+      // Update records that use this tag
+      const affected = records.filter(r => r.tags.includes(oldName))
+      for (const r of affected) {
+        const newTags = r.tags.map(t => t === oldName ? newName : t)
+        await updateRecord(r.id, { tags: newTags })
+      }
+      setRecords(prev => prev.map(r => r.tags.includes(oldName)
+        ? { ...r, tags: r.tags.map(t => t === oldName ? newName : t) } : r))
+      flash("已重命名 ✨")
+    } catch (e) { flash("重命名失败") }
+  }
+
   // Filter & sort
   const displayRecords = records
     .filter(r => {
@@ -927,14 +966,37 @@ function MainApp() {
               color:showNotes||inputNotes?"#E8A87C":"#C9B8BF",fontWeight:500,
               display:"flex",alignItems:"center",gap:3,transition:"all 0.2s"
             }}>✎ 备注{inputNotes?" ·":"" }</button>
-            {allTags.map(tag => {
-              const active = selectedTags.includes(tag)
-              return <button key={tag} onClick={()=>toggleTag(tag)} style={{
-                padding:"4px 12px",borderRadius:8,fontSize:12,fontWeight:500,border:"none",cursor:"pointer",
-                transition:"all 0.2s",background:active?getTagColor(tag):`${getTagColor(tag)}12`,
-                color:active?"white":getTagColor(tag)
-              }}>{tag}</button>
-            })}
+            {(() => {
+              // Sort tags by usage frequency
+              const sorted = [...allTags].sort((a, b) => (tagCounts[b]||0) - (tagCounts[a]||0))
+              // Always show selected tags + top 5
+              const SHOW_COUNT = 5
+              const topTags = sorted.slice(0, SHOW_COUNT)
+              const restTags = sorted.slice(SHOW_COUNT)
+              // Selected tags not in top should still show
+              const extraSelected = selectedTags.filter(t => !topTags.includes(t))
+              const visibleTags = tagsExpanded ? sorted : [...topTags, ...extraSelected.filter(t => !topTags.includes(t))]
+              const hiddenCount = tagsExpanded ? 0 : restTags.filter(t => !selectedTags.includes(t)).length
+
+              return <>
+                {visibleTags.map(tag => {
+                  const active = selectedTags.includes(tag)
+                  return <button key={tag} onClick={()=>toggleTag(tag)} style={{
+                    padding:"4px 12px",borderRadius:8,fontSize:12,fontWeight:500,border:"none",cursor:"pointer",
+                    transition:"all 0.2s",background:active?getTagColor(tag):`${getTagColor(tag)}12`,
+                    color:active?"white":getTagColor(tag)
+                  }}>{tag}</button>
+                })}
+                {hiddenCount > 0 && <button onClick={()=>setTagsExpanded(true)} style={{
+                  padding:"4px 10px",borderRadius:8,fontSize:12,border:"1.5px dashed #DDD4CE",
+                  background:"none",cursor:"pointer",color:"#C9B8BF",fontWeight:500
+                }}>展开 +{hiddenCount}</button>}
+                {tagsExpanded && restTags.length > 0 && <button onClick={()=>setTagsExpanded(false)} style={{
+                  padding:"4px 10px",borderRadius:8,fontSize:12,border:"none",
+                  background:"#F5EDE8",cursor:"pointer",color:"#C9B8BF",fontWeight:500
+                }}>收起</button>}
+              </>
+            })()}
             <button onClick={()=>setShowTagManager(true)} style={{
               padding:"4px 10px",borderRadius:8,fontSize:12,border:"1.5px dashed #DDD4CE",
               background:"none",cursor:"pointer",color:"#C9B8BF",display:"flex",alignItems:"center",gap:2
@@ -1057,8 +1119,9 @@ function MainApp() {
       </div>
 
       <Toast message={toast.msg} visible={toast.show}/>
-      {showTagManager && <TagManager tags={allTags} customTags={customTags}
-        onAdd={handleAddTag} onDelete={handleDeleteTag} onClose={()=>setShowTagManager(false)}/>}
+      {showTagManager && <TagManager tags={allTags}
+        onAdd={handleAddTag} onDelete={handleDeleteTag} onRename={handleRenameTag}
+        onClose={()=>setShowTagManager(false)}/>}
       {showExport && <ExportModal records={records} filterTag={filterTag}
         calendarDate={calendarDate} onClose={()=>setShowExport(false)}/>}
       {showAi && <AiChat records={records} allTags={allTags} onClose={()=>setShowAi(false)}/>}
